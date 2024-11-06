@@ -47,7 +47,7 @@ int main(int argc, char **argv)
     std::vector<std::pair<int, int>> edge_list;
     std::vector<std::pair<std::pair<int, int>, int>> A;
     std::vector<std::pair<std::pair<int, int>, int>> A_T;
-    int edges_result;
+    int result_nnz;
     std::vector<std::pair<std::pair<int, int>, int>> spgemm_result;
     std::vector<int> bfs_result;
     int tc_result=0;
@@ -91,9 +91,9 @@ int main(int argc, char **argv)
         std::sort(A.begin(), A.end());
         std::sort(A_T.begin(), A_T.end());
 
-        file >> edges_result;
+        file >> result_nnz;
 
-        for (int i = 0; i < edges_result; ++i)
+        for (int i = 0; i < result_nnz; ++i)
         {
             file >> spgemm_result.emplace_back().first.first >> spgemm_result.back().first.second >> spgemm_result.back().second;
         }
@@ -108,41 +108,24 @@ int main(int argc, char **argv)
         file >> tc_result;
 
 
-        file.close();   
+        file.close();
     }
 
     MPI_Bcast(&nodes, 1, MPI_INT, 0, MPI_COMM_WORLD);
     MPI_Bcast(&source, 1, MPI_INT, 0, MPI_COMM_WORLD);
     MPI_Bcast(&edges, 1, MPI_INT, 0, MPI_COMM_WORLD);
-    MPI_Bcast(&edges_result, 1, MPI_INT, 0, MPI_COMM_WORLD);
 
     if (flag == "-spgemm")
     {
-
-        int a_rows = edges / size;
-        int b_rows = edges / size;
-        int c_rows = edges / size;
-
-        if (edges % size > rank)
-        {
-            a_rows++;
-            c_rows++;
-        }
-
-        if (edges % size > rank)
-        {
-            b_rows++;
-        }
-
         int a_send_rows[size];
         int b_send_rows[size];
         int a_send_indices[size + 1];
         int b_send_indices[size + 1];
-        int a_rows_to_rank[edges];
-        int b_rows_to_rank[edges];
+        int a_rows_to_rank[nodes];
+        int b_rows_to_rank[nodes];
         int c_send_rows[size];
         int c_send_indices[size + 1];
-        int c_rows_to_rank[edges];
+        int c_rows_to_rank[nodes];
 
         std::vector<int> a_send_counts(size);
         std::vector<int> b_send_counts(size);
@@ -156,17 +139,14 @@ int main(int argc, char **argv)
 
         for (int i = 0; i < size; i++)
         {
-            a_send_rows[i] = edges / size;
-            c_send_rows[i] = edges / size;
-            b_send_rows[i] = edges / size;
-            if (edges % size > i)
+            a_send_rows[i] = nodes / size;
+            c_send_rows[i] = nodes / size;
+            b_send_rows[i] = nodes / size;
+            if (nodes % size > i)
             {
                 a_send_rows[i]++;
-                c_send_rows[i]++;
-            }
-            if (edges % size > i)
-            {
                 b_send_rows[i]++;
+                c_send_rows[i]++;
             }
         }
 
@@ -286,9 +266,20 @@ int main(int argc, char **argv)
         std::vector<std::pair<std::pair<int, int>, int>> C_computed;
         double start = MPI_Wtime();
 
-        spgemm(edges, edges, edges, a_recv_data_coo, b_recv_data_coo, C_computed);
+        spgemm(nodes, nodes, nodes, a_recv_data_coo, b_recv_data_coo, C_computed);
 
         double end = MPI_Wtime();
+        double total_time = end - start;
+        double total_time_max = 0;
+
+        MPI_Scan(&total_time, &total_time_max, 1, MPI_DOUBLE, MPI_MAX, MPI_COMM_WORLD);
+
+        if (rank == size - 1){
+            MPI_Send(&total_time_max, 1, MPI_DOUBLE, 0, 0, MPI_COMM_WORLD);
+        }
+        if (rank == 0){
+            MPI_Recv(&total_time_max, 1, MPI_DOUBLE, size - 1, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+        }
 
         std::sort(c_recv_data_coo.begin(), c_recv_data_coo.end());
         std::sort(C_computed.begin(), C_computed.end());
@@ -316,12 +307,12 @@ int main(int argc, char **argv)
             if (total_flag == size)
             {
                 std::cout << "SPGEMM is correct" << std::endl;
-                std::cout << "Time taken by SPGEMM: " << end - start << std::endl;
+                std::cout << "Time taken by SPGEMM: " << total_time_max << std::endl;
             }
             else
             {
                 std::cout << "SPGEMM is incorrect" << std::endl;
-                std::cout << "Time taken by SPGEMM: " << end - start << std::endl;
+                std::cout << "Time taken by SPGEMM: " << total_time_max << std::endl;
             }
         }
 
@@ -408,10 +399,8 @@ int main(int argc, char **argv)
         std::vector<int> displsC(size);
 
         int c_send_count = n_rows;
-
         
         MPI_Gather(&c_send_count, 1, MPI_INT, &C_sendcounts[0], 1, MPI_INT, 0, MPI_COMM_WORLD);
-
 
         if (rank == 0)
         {
@@ -422,10 +411,20 @@ int main(int argc, char **argv)
             }
         }
 
-
         double start = MPI_Wtime();
         bfs(nodes, source, recv_data_coo, node_depth);
         double end = MPI_Wtime();
+        double total_time = end - start;
+        double total_time_max = 0;
+
+        MPI_Scan(&total_time, &total_time_max, 1, MPI_DOUBLE, MPI_MAX, MPI_COMM_WORLD);
+
+        if (rank == size - 1){
+            MPI_Send(&total_time_max, 1, MPI_DOUBLE, 0, 0, MPI_COMM_WORLD);
+        }
+        if (rank == 0){
+            MPI_Recv(&total_time_max, 1, MPI_DOUBLE, size - 1, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+        }
 
 
         result_depth.resize(nodes);
@@ -440,12 +439,12 @@ int main(int argc, char **argv)
             if (std::equal(result_depth.begin(), result_depth.end(), bfs_result.begin()))
             {
                 std::cout << "BFS is correct" << std::endl;
-                std::cout << "Time taken by BFS: " << end - start << std::endl;
+                std::cout << "Time taken by BFS: " << total_time_max << std::endl;
             }
             else
             {
                 std::cout << "BFS is incorrect" << std::endl;
-                std::cout << "Time taken by BFS: " << end - start << std::endl;
+                std::cout << "Time taken by BFS: " << total_time_max << std::endl;
             }
         }
 
@@ -519,12 +518,21 @@ int main(int argc, char **argv)
             recv_data_coo.push_back(std::make_pair(std::make_pair(recv_data[i], recv_data[i + 1]), recv_data[i + 2]));
         }
 
-
         int triangle_count = 0;
         double start = MPI_Wtime();
         triangle_count = triangle_counts(nodes, recv_data_coo);
         double end = MPI_Wtime();
+        double total_time = end - start;
+        double total_time_max = 0;
 
+        MPI_Scan(&total_time, &total_time_max, 1, MPI_DOUBLE, MPI_MAX, MPI_COMM_WORLD);
+
+        if (rank == size - 1){
+            MPI_Send(&total_time_max, 1, MPI_DOUBLE, 0, 0, MPI_COMM_WORLD);
+        }
+        if (rank == 0){
+            MPI_Recv(&total_time_max, 1, MPI_DOUBLE, size - 1, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+        }
 
         if (rank == 0)
         {
@@ -537,7 +545,7 @@ int main(int argc, char **argv)
             {
                 std::cout << "Triangle Counting is incorrect and not equal to " << tc_result << std::endl;
             }
-            std::cout << "Time taken by Triangle Counting: " << end - start << std::endl;
+            std::cout << "Time taken by Triangle Counting: " << total_time_max << std::endl;
         }
 
         MPI_Finalize();

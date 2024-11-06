@@ -1,5 +1,5 @@
 MPICXX = mpic++
-CXXFLAGS = -Wall -O3
+CXXFLAGS = -O3
 
 SRC = main.cpp functions.h spgemm.cpp bfs.cpp triangle_counts.cpp
 EXEC = pa3
